@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: containervm
+spec:
+  selector:
+    matchLabels:
+      app: containervm
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: containervm
+    spec:
+      volumes:
+        - name: containervm
+          emptyDir: { }
+      initContainers:
+        - name: containervm
+          # The image contains the containervm binary.
+          image: "cox96de/containervm"
+          imagePullPolicy: Always
+          volumeMounts:
+            - mountPath: /containervm
+              name: containervm
+          # Copy the containervm binary to /containervm, it shares the volume with the vm.
+          command:
+            - "bash"
+            - "-c"
+            - "cp /opt/containervm /containervm"
+      containers:
+        - name: image
+          # The image contains the qemu-img binary and qemu binary.
+          # The qemu image can be load from anywhere as long as it is accessible from the container.
+          # Such as host mount or a NFS volume.
+          image: "cox96de/containervm-qemu-img:debian-11-amd64"
+          securityContext:
+            # The vm container needs privileged to run qemu with kvm.
+            # The vm container is isolated from the host, so it is safe to run privileged container.
+            privileged: true
+          command:
+            - "bash"
+            - "-c"
+            # Run the vm with qemu-system-x86_64.
+            # The containervm will append network config to the qemu command line.
+            # The image location is /images/debian-11-amd64.qcow2 in the container.
+            - "/containervm/containervm -- qemu-system-x86_64 -nodefaults --nographic -display none -machine type=q35,usb=off -smp 1,sockets=1,cores=1,threads=1 -m 512M -device virtio-balloon-pci,id=balloon0 -drive file=/images/debian-11-amd64.qcow2,format=qcow2,if=virtio,aio=threads,media=disk,cache=unsafe,snapshot=on -serial chardev:serial0 -chardev socket,id=serial0,path=/tmp/console.sock,server=on,wait=off -vnc unix:/tmp/vnc.sock -device VGA"
+          volumeMounts:
+            - mountPath: /containervm
+              name: containervm
+          resources:
+            requests:
+              memory: "2048Mi"
+              cpu: "2"
+            limits:
+              memory: "2048Mi"
+              cpu: "2"
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: debian
+spec:
+  selector:
+    matchLabels:
+      app: debian
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: debian
+    spec:
+      containers:
+        # A simple container to test vm.
+        - name: debian
+          image: debian
+          # Keep the container running.
+          # Can use ssh to connect to the vm container with pod ip (only IPv4 is supported yet).
+          command:
+            - "bash"
+            - "-c"
+            - "tail -f /dev/null"
