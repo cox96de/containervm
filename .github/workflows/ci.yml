@@ -14,23 +14,25 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: 1.19
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.19
 
-    - name: Build
-      run: sudo go build -v ./...
+      - name: Build
+        run: sudo go build -v ./...
 
-    - name: Test
-      run: sudo go test -v ./...
+      - name: Test
+        run: sudo go test -v ./...
   intetration:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
       - name: Build docker
         run: docker build -t containervm .
-      - name: Run
-        run: docker run containervm -- ls
+      - name: Download Image
+        run: wget -q -O image.qcow2 'https://cloud.debian.org/images/cloud/bullseye/20230515-1381/debian-11-nocloud-amd64-20230515-1381.qcow2'
+      - name: Integration test
+        run: cd test && go test -tags integration -v ./...
