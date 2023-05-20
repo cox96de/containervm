@@ -5,9 +5,9 @@ name: Go
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "master" ]
 
 jobs:
 
@@ -25,7 +25,7 @@ jobs:
         run: sudo go build -v ./...
 
       - name: Test
-        run: sudo go test -v -coverprofile cover.out ./...
+        run: sudo go test -coverprofile cover.out ./...
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v3
         env:
