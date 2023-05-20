@@ -1,18 +1,71 @@
 package util
 
 import (
+	"bufio"
 	"crypto/rand"
-	"net"
-	"time"
-
 	"github.com/go-ping/ping"
 	"github.com/jackpal/gateway"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
+	"net"
+	"os"
+	"regexp"
+	"strings"
+	"time"
 )
 
 // GetRandomMAC generates a random uni-cast MAC address.
+const (
+	resolvConfPath = "/etc/resolv.conf"
+	ipv4NumBlock   = `(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)`
+	ipv4Address    = `(` + ipv4NumBlock + `\.){3}` + ipv4NumBlock
+)
+
+var (
+	nsRegexp     = regexp.MustCompile(`^\s*nameserver\s*((` + ipv4Address + `))\s*$`)
+	searchRegexp = regexp.MustCompile(`^\s*search\s*(([^\s]+\s*)*)$`)
+)
+
+// GetSearchDomains reads search domains from /etc/resolv.conf of the host.
+func GetSearchDomains() []string {
+	conf, err := os.Open(resolvConfPath)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conf.Close() }()
+	var domains []string
+	s := bufio.NewScanner(conf)
+	for s.Scan() {
+		match := searchRegexp.FindSubmatch(s.Bytes())
+		if match == nil {
+			continue
+		}
+		domains = strings.Fields(string(match[1]))
+	}
+	return domains
+}
+
+// GetNameServers reads nameservers from /etc/resolv.conf of the host.
+func GetNameServers() []string {
+	conf, err := os.Open(resolvConfPath)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = conf.Close() }()
+	var servers []string
+	s := bufio.NewScanner(conf)
+	for s.Scan() {
+		match := nsRegexp.FindSubmatch(s.Bytes())
+		if match == nil {
+			continue
+		}
+		servers = append(servers, string(match[1]))
+	}
+	return servers
+}
+
+// GetRandomMAC generates a random unicast MAC address.
 func GetRandomMAC() net.HardwareAddr {
 	addr := make(net.HardwareAddr, 6)
 	_, _ = rand.Read(addr)

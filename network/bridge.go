@@ -84,7 +84,7 @@ func CreateBridge(opt *CreateBridgeOption) (err error) {
 	return nil
 }
 
-// getTapDeviceName returns tap device major/minor device id.
+// getTapDeviceNum returns tap device major/minor device id.
 // The virtual network device cannot be shown in `/dev`, as the files in `/dev` is created by host kernel.
 func getTapDeviceNum(tapName string) (string, string, error) {
 	devices, err := filepath.Glob(fmt.Sprintf("/sys/devices/virtual/net/%s/tap*/dev", tapName))
