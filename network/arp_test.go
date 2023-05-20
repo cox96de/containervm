@@ -48,10 +48,10 @@ func TestServeARP(t *testing.T) {
 	assert.NilError(t, err)
 	client, err := arp.Dial(iface)
 	assert.NilError(t, err)
-	t.Run("outer_ip", func(t *testing.T) {
+	t.Run("same_net", func(t *testing.T) {
 		err := client.SetDeadline(time.Now().Add(time.Second))
 		assert.NilError(t, err)
-		ip := net.ParseIP("39.156.66.14")
+		ip := net.ParseIP("192.168.1.4")
 		err = client.Request(ip)
 		assert.NilError(t, err)
 		packet, _, err := client.Read()
