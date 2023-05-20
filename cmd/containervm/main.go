@@ -75,7 +75,6 @@ func configureNetwork() (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu 
 		HardwareAddr:  nic.HardwareAddr,
 		IP:            nic.Addr,
 		GatewayIP:     nic.Gateway,
-		GatewayAddr:   nic.GatewayHardwareAddr,
 		DNSServers:    []string{},
 		SearchDomains: []string{},
 		Hostname:      hostname,
