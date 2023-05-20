@@ -3,6 +3,7 @@ package network
 import (
 	"fmt"
 	"github.com/cox96de/containervm/util"
+	"github.com/vishvananda/netlink"
 	"net"
 	"os"
 	"path/filepath"
@@ -13,13 +14,13 @@ import (
 )
 
 type CreateBridgeOption struct {
-	// NicName is the default network interface name, e.g. eth0.
-	NicName string
-	// NicMac is the default network interface MAC address.
-	NicMac net.HardwareAddr
-	// NewNicMac is the new MAC address for the default network interface.
-	// Original mac (NicMac) will be assigned to the tap device.
-	NewNicMac net.HardwareAddr
+	// NICName is the default network interface name, e.g. eth0.
+	NICName string
+	// NICMac is the default network interface MAC address.
+	NICMac net.HardwareAddr
+	// NewNICMac is the new MAC address for the default network interface.
+	// Original mac (NICMac) will be assigned to the tap device.
+	NewNICMac net.HardwareAddr
 	// TapName is the name of the tap device.
 	TapName string
 	// TapDevicePath is the path of the tap device file, e.g. /dev/tap0.
@@ -33,34 +34,63 @@ type CreateBridgeOption struct {
 // It will delete all IPs of this NIC, and assign its MAC address to the tap device.
 func CreateBridge(opt *CreateBridgeOption) (err error) {
 	// Set MAC of NIC to a random one. The original MAC should be assigned to the tap device.
-	nicName := opt.NicName
+	nicName := opt.NICName
 	tapName := opt.TapName
 	lanName := opt.LanName
-	// TODO: use netlink to refactor, ip command might be not installed
-	if output, err := util.Run("ip", "link", "set", nicName, "down"); err != nil {
-		return errors.WithMessagef(err, "failed to bring down nic: %s", output)
+	link, err := netlink.LinkByName(nicName)
+	if err != nil {
+		return errors.WithMessagef(err, "failed to get link by name %s", nicName)
 	}
-	if output, err := util.Run("ip", "link", "set", nicName, "address", opt.NewNicMac.String()); err != nil {
-		return errors.WithMessagef(err, "failed to set mac for nic: %s", output)
+	// Identical to `ip link set nicName down`.
+	if err = netlink.LinkSetDown(link); err != nil {
+		return errors.WithMessagef(err, "failed to bring down nic %s", nicName)
 	}
-	if output, err := util.Run("ip", "link", "set", nicName, "up"); err != nil {
-		return errors.WithMessagef(err, "failed to bring up nic: %s", output)
+	// Identical to `ip link set nicName address opt.NewNICMac.String()`.
+	if err = netlink.LinkSetHardwareAddr(link, opt.NewNICMac); err != nil {
+		return errors.WithMessagef(err, "failed to set mac '%s' for nic %s ", opt.NewNICMac.String(), nicName)
+	}
+	// Identical to `ip link set nicName up`.
+	if err = netlink.LinkSetUp(link); err != nil {
+		return errors.WithMessagef(err, "failed to bring up nic %s", nicName)
 	}
 	// Create a MacVTap device upon the NIC and assign the original NIC MAC to it.
 	log.Infof("creating tap device %s upon nic %s", tapName, nicName)
-	tapCommand := []string{"link", "add", "link", nicName, "name", tapName, "type", "macvtap", "mode", "bridge"}
-	if output, err := util.Run("ip", tapCommand...); err != nil {
-		return errors.WithMessagef(err, "failed to create macvtap device: %s", output)
+	attrs := netlink.NewLinkAttrs()
+	attrs.ParentIndex = link.Attrs().Index
+	attrs.Name = tapName
+	attrs.MTU = link.Attrs().MTU
+	// Identical to `ip link add link nicName name tapName type macvtap mode bridge`.
+	if err = netlink.LinkAdd(&netlink.Macvtap{
+		Macvlan: netlink.Macvlan{
+			LinkAttrs: attrs,
+			Mode:      netlink.MACVLAN_MODE_BRIDGE,
+		},
+	}); err != nil {
+		return errors.WithMessagef(err, "failed to create macvtap device %s", tapName)
 	}
-	if output, err := util.Run("ip", "link", "set", tapName, "address", opt.NicMac.String()); err != nil {
-		return errors.WithMessagef(err, "failed to set mac of tap device to nic: %+v", output)
+	macvtap, err := netlink.LinkByName(tapName)
+	if err != nil {
+		return errors.WithMessagef(err, "failed to get macvtap link by name %s", tapName)
 	}
-	if output, err := util.Run("ip", "link", "set", tapName, "up"); err != nil {
-		return errors.WithMessagef(err, "failed to bring up tap device: %s", output)
+	// Identical to `ip link set tapName address opt.NICMac.String()`.
+	if err = netlink.LinkSetHardwareAddr(macvtap, opt.NICMac); err != nil {
+		return errors.WithMessagef(err, "failed to set mac '%s' for macvtap %s ", opt.NICMac.String(), tapName)
+	}
+	// Identical to `ip link set tapName up`.
+	if err = netlink.LinkSetUp(macvtap); err != nil {
+		return errors.WithMessagef(err, "failed to bring up macvtap %s", tapName)
 	}
 	// Flush the original NIC IPs.
-	if output, err := util.Run("ip", "addr", "flush", "dev", nicName); err != nil {
-		return errors.WithMessagef(err, "failed to flush ip of nic: %s", output)
+	addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)
+	if err != nil {
+		return errors.WithMessagef(err, "failed to get ip of nic %s", nicName)
+	}
+	// Identical to `ip addr flush dev nicName`.
+	for _, addr := range addrs {
+		if err := netlink.AddrDel(link, &addr); err != nil {
+			return errors.WithMessagef(err, "failed to delete ip %s of nic %s", addr.String(), nicName)
+		}
+
 	}
 	major, minor, err := getTapDeviceNum(tapName)
 	if err != nil {
@@ -71,20 +101,37 @@ func CreateBridge(opt *CreateBridgeOption) (err error) {
 	}
 	// Create a MacVLan device with a fake IP. The DHCP server serves on that device.
 	log.Infof("creating macvlan device %s upon nic %s", lanName, nicName)
-	lanCommand := []string{"link", "add", "link", nicName, "name", lanName, "type", "macvlan", "mode", "bridge"}
-	if output, err := util.Run("ip", lanCommand...); err != nil {
-		return errors.WithMessagef(err, "failed to create macvtap device: %s", output)
+	// Identical to `ip link add link nicName name lanName type macvlan mode bridge`.
+	linkAttrs := netlink.NewLinkAttrs()
+	linkAttrs.ParentIndex = link.Attrs().Index
+	linkAttrs.Name = lanName
+	linkAttrs.MTU = link.Attrs().MTU
+	if err = netlink.LinkAdd(&netlink.Macvlan{
+		LinkAttrs: linkAttrs,
+		Mode:      netlink.MACVLAN_MODE_BRIDGE,
+	}); err != nil {
+		return errors.WithMessagef(err, "failed to create macvlan device %s", lanName)
 	}
-	if output, err := util.Run("ip", "link", "set", lanName, "up"); err != nil {
-		return errors.WithMessagef(err, "failed to bring up macvlan device: %s", output)
+	macvlan, err := netlink.LinkByName(lanName)
+	if err != nil {
+		return errors.WithMessagef(err, "failed to get macvlan link by name %s", lanName)
 	}
-	if output, err := util.Run("ip", "addr", "add", "240.0.0.0/32", "dev", lanName); err != nil {
-		return errors.WithMessagef(err, "failed to assign ip to macvlan device: %s", output)
+	if err = netlink.LinkSetUp(macvlan); err != nil {
+		return errors.WithMessagef(err, "failed to bring up macvlan %s", lanName)
+	}
+	// Identical to `ip addr add xxxx dev lanName`.
+	lanIP := "240.0.0.1/32"
+	addr, err := netlink.ParseAddr(lanIP)
+	if err != nil {
+		return errors.WithMessagef(err, "failed to parse ip address '%s'", lanIP)
+	}
+	if err = netlink.AddrAdd(macvtap, addr); err != nil {
+		return errors.WithMessagef(err, "failed to assign ip address '%s' to macvlan device %s", lanIP, lanName)
 	}
 	return nil
 }
 
-// getTapDeviceName returns tap device major/minor device id.
+// getTapDeviceNum returns tap device major/minor device id.
 // The virtual network device cannot be shown in `/dev`, as the files in `/dev` is created by host kernel.
 func getTapDeviceNum(tapName string) (string, string, error) {
 	devices, err := filepath.Glob(fmt.Sprintf("/sys/devices/virtual/net/%s/tap*/dev", tapName))

@@ -58,9 +58,9 @@ func configureNetwork() (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu 
 	lanName := fmt.Sprintf("macvlan%s", randomString(3))
 	tapDevicePath := "/dev/" + tapName
 	err = network.CreateBridge(&network.CreateBridgeOption{
-		NicName:       nic.Name,
-		NicMac:        nic.HardwareAddr,
-		NewNicMac:     util.GetRandomMAC(),
+		NICName:       nic.Name,
+		NICMac:        nic.HardwareAddr,
+		NewNICMac:     util.GetRandomMAC(),
 		TapName:       tapName,
 		TapDevicePath: tapDevicePath,
 		LanName:       lanName,
