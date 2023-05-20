@@ -17,8 +17,6 @@ type DHCPOption struct {
 	IP net.Addr
 	// Return GatewayIP in dhcp response.
 	GatewayIP net.IP
-	// Return GatewayAddr in dhcp response.
-	GatewayAddr net.HardwareAddr
 	// Return DNSServers in dhcp response.
 	DNSServers []string
 	// Return SearchDomains in dhcp response.
@@ -48,7 +46,6 @@ func NewDHCPServerFromAddr(opt *DHCPOption) (*DHCPServer, error) {
 		subnetMask:    subnetMask,
 		broadcastAddr: broadcastAddr.To4(),
 		router:        opt.GatewayIP.To4(),
-		routerHwAddr:  opt.GatewayAddr,
 		dnsServers:    nameServers,
 		domains:       opt.SearchDomains,
 	}, nil
@@ -65,7 +62,6 @@ type DHCPServer struct {
 	subnetMask    net.IPMask
 	broadcastAddr net.IP
 	router        net.IP
-	routerHwAddr  net.HardwareAddr
 	dnsServers    []net.IP
 	domains       []string
 }
@@ -73,7 +69,7 @@ type DHCPServer struct {
 type logger struct{}
 
 func (l *logger) PrintMessage(prefix string, message *dhcpv4.DHCPv4) {
-	log.Debugf("%s: %s", prefix, message.Message())
+	log.Debugf("%s: %s", prefix, message.Summary())
 }
 
 func (l *logger) Printf(format string, v ...interface{}) {
@@ -93,7 +89,6 @@ func (s *DHCPServer) Run(ifName string) error {
 	log.Debugf("subnet mask: %v", s.subnetMask)
 	log.Debugf("broadcast addr: %v", s.broadcastAddr)
 	log.Debugf("router: %v", s.router)
-	log.Debugf("router hw addr: %v", s.routerHwAddr)
 	log.Debugf("hostname: %s", s.hostname)
 	log.Debugf("dns servers: %+v", s.dnsServers)
 	log.Debugf("search domains: %+v", s.domains)
@@ -110,6 +105,7 @@ func (s *DHCPServer) handle(conn net.PacketConn, peer net.Addr, msg *dhcpv4.DHCP
 			s.clientHwAddr.String(), msg.ClientHWAddr.String())
 		return
 	}
+	log.Debugf("get msg: %s", msg.Summary())
 	msgType := msg.Options.Get(dhcpv4.OptionDHCPMessageType)
 	switch {
 	case bytes.Equal(msgType, dhcpv4.MessageTypeDiscover.ToBytes()):
