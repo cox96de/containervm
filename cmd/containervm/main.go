@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"github.com/cox96de/containervm/network"
+	"github.com/cox96de/containervm/resolvconf"
 	"github.com/cox96de/containervm/util"
+	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"golang.org/x/exp/rand"
@@ -15,13 +17,28 @@ import (
 )
 
 func main() {
+	var (
+		inheritResolv bool
+	)
+	pflag.BoolVar(&inheritResolv, "inherit-resolv", true, "inherit resolv.conf from host")
 	pflag.Parse()
 	args := pflag.Args()
 	log.SetLevel(log.DebugLevel)
 	if len(args) == 0 {
 		log.Fatalf("qemu launch command is required")
 	}
-	tapDevicePath, bridgeMacAddr, mtu := configureNetwork()
+	var (
+		dnsServers    []string
+		searchDomains []string
+		err           error
+	)
+	if inheritResolv {
+		dnsServers, searchDomains, err = getNameserversAndSearchDomain()
+		if err != nil {
+			log.Fatalf("failed to get nameservers and search domains: %+v", err)
+		}
+	}
+	tapDevicePath, bridgeMacAddr, mtu := configureNetwork(dnsServers, searchDomains)
 	tapFile, err := os.Open(tapDevicePath)
 	if err != nil {
 		log.Fatalf("failed to open tap dev(%s): %+v", tapDevicePath, err)
@@ -48,7 +65,7 @@ func generateQEMUNetworkOpt(vtapFile *os.File, macAddr net.HardwareAddr, mtu int
 		"-device", "virtio-net-pci,netdev=net0,mac=" + macAddr.String() + ",host_mtu=" + strconv.Itoa(mtu)}
 }
 
-func configureNetwork() (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu int) {
+func configureNetwork(dnsServers []string, searchDomains []string) (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu int) {
 	nic, err := util.GetDefaultNIC()
 	if err != nil {
 		log.Fatalf("failed to get default nic: %+v", err)
@@ -75,8 +92,8 @@ func configureNetwork() (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu 
 		HardwareAddr:  nic.HardwareAddr,
 		IP:            nic.Addr,
 		GatewayIP:     nic.Gateway,
-		DNSServers:    []string{},
-		SearchDomains: []string{},
+		DNSServers:    dnsServers,
+		SearchDomains: searchDomains,
 		Hostname:      hostname,
 	})
 	if err != nil {
@@ -93,6 +110,16 @@ func configureNetwork() (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu 
 		}
 	}()
 	return tapDevicePath, nic.HardwareAddr, nic.MTU
+}
+
+func getNameserversAndSearchDomain() (nameservers []string, searchDomains []string, err error) {
+	resolvFile, err := os.ReadFile("/etc/resolv.conf")
+	if err != nil {
+		return nil, nil, errors.WithMessagef(err, "failed to read /etc/resolv.conf")
+	}
+	nameservers = resolvconf.GetNameservers(resolvFile)
+	searchDomains = resolvconf.GetSearchDomains(resolvFile)
+	return nameservers, searchDomains, nil
 }
 
 func randomString(b int) string {
