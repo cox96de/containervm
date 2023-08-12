@@ -30,7 +30,7 @@ func TestNewDHCPServerFromAddr(t *testing.T) {
 			},
 			HardwareAddr:  nic.HardwareAddr,
 			GatewayIP:     gwIP,
-			DNSServers:    []string{},
+			DNSServers:    []net.IP{},
 			SearchDomains: []string{},
 		})
 		assert.NilError(t, err)
