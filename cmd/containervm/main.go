@@ -18,9 +18,11 @@ import (
 
 func main() {
 	var (
-		inheritResolv bool
+		inheritResolv    bool
+		extraNameservers []string
 	)
 	pflag.BoolVar(&inheritResolv, "inherit-resolv", true, "inherit resolv.conf from host")
+	pflag.StringSliceVar(&extraNameservers, "nameserver", []string{}, "extra nameserver to use")
 	pflag.Parse()
 	args := pflag.Args()
 	log.SetLevel(log.DebugLevel)
@@ -28,17 +30,29 @@ func main() {
 		log.Fatalf("qemu launch command is required")
 	}
 	var (
-		dnsServers    []string
+		nameservers   []string
 		searchDomains []string
 		err           error
 	)
 	if inheritResolv {
-		dnsServers, searchDomains, err = getNameserversAndSearchDomain()
+		nameservers, searchDomains, err = getNameserversAndSearchDomain()
 		if err != nil {
 			log.Fatalf("failed to get nameservers and search domains: %+v", err)
 		}
 	}
-	tapDevicePath, bridgeMacAddr, mtu := configureNetwork(dnsServers, searchDomains)
+	// TODO: validate nameservers
+	nameservers = append(nameservers, extraNameservers...)
+	ns := make([]net.IP, 0, len(nameservers))
+	for _, nameserver := range nameservers {
+		ip := net.ParseIP(nameserver)
+		if ip.IsLoopback() {
+			// Nameserver in containers might be a loopback address.
+			// It can be seen in docker-compose.
+			continue
+		}
+		ns = append(ns, ip)
+	}
+	tapDevicePath, bridgeMacAddr, mtu := configureNetwork(ns, searchDomains)
 	tapFile, err := os.Open(tapDevicePath)
 	if err != nil {
 		log.Fatalf("failed to open tap dev(%s): %+v", tapDevicePath, err)
@@ -65,7 +79,7 @@ func generateQEMUNetworkOpt(vtapFile *os.File, macAddr net.HardwareAddr, mtu int
 		"-device", "virtio-net-pci,netdev=net0,mac=" + macAddr.String() + ",host_mtu=" + strconv.Itoa(mtu)}
 }
 
-func configureNetwork(dnsServers []string, searchDomains []string) (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu int) {
+func configureNetwork(dnsServers []net.IP, searchDomains []string) (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu int) {
 	nic, err := util.GetDefaultNIC()
 	if err != nil {
 		log.Fatalf("failed to get default nic: %+v", err)

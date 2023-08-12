@@ -18,7 +18,7 @@ type DHCPOption struct {
 	// Return GatewayIP in dhcp response.
 	GatewayIP net.IP
 	// Return DNSServers in dhcp response.
-	DNSServers []string
+	DNSServers []net.IP
 	// Return SearchDomains in dhcp response.
 	SearchDomains []string
 	// Return Hostname in dhcp response
@@ -35,10 +35,6 @@ func NewDHCPServerFromAddr(opt *DHCPOption) (*DHCPServer, error) {
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to get hostname")
 	}
-	nameServers := make([]net.IP, 0, len(opt.DNSServers))
-	for _, dn := range opt.DNSServers {
-		nameServers = append(nameServers, net.ParseIP(dn))
-	}
 	return &DHCPServer{
 		clientIP:      clientIP.To4(),
 		clientHwAddr:  opt.HardwareAddr,
@@ -46,7 +42,7 @@ func NewDHCPServerFromAddr(opt *DHCPOption) (*DHCPServer, error) {
 		subnetMask:    subnetMask,
 		broadcastAddr: broadcastAddr.To4(),
 		router:        opt.GatewayIP.To4(),
-		dnsServers:    nameServers,
+		dnsServers:    opt.DNSServers,
 		domains:       opt.SearchDomains,
 	}, nil
 }

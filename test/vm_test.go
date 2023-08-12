@@ -61,6 +61,7 @@ users:
 		fmt.Sprintf("--name %s ", containerName) +
 		"-w /root " +
 		"containervm " +
+		"--nameserver 192.168.31.2 " +
 		"-- " +
 		qemuCMD
 
@@ -105,18 +106,18 @@ PzJY8Yglizre5MvPAAAAFnhpYXppaGFvQE1hY0Jvb2subG9jYWwBAgME
 -----END OPENSSH PRIVATE KEY-----
 `
 	sshPrivateDir := fs.NewDir(t, "gotest", fs.WithFile("ssh.private", privateKey, fs.WithMode(0600)))
-	testVM := func(commands ...string) error {
+	testVM := func(commands ...string) (string, error) {
 		output, err := util.Run("ssh", append([]string{"-i", sshPrivateDir.Join("ssh.private"), "-o",
 			"StrictHostKeyChecking=no", "newsuper@" + ip}, commands...)...)
 		if err != nil {
-			return err
+			return "", err
 		}
 		t.Logf("output: %s", output)
-		return nil
+		return output, nil
 	}
 	pass := false
 	for i := 0; i < 20; i++ {
-		err := testVM("date")
+		_, err := testVM("date")
 		if err == nil {
 			pass = true
 			break
@@ -125,6 +126,9 @@ PzJY8Yglizre5MvPAAAAFnhpYXppaGFvQE1hY0Jvb2subG9jYWwBAgME
 		time.Sleep(time.Second * 5)
 	}
 	assert.Assert(t, pass)
+	resolveContent, err := testVM("cat /etc/resolv.conf")
+	assert.NilError(t, err)
+	assert.Assert(t, strings.Contains(resolveContent, "192.168.31.2"))
 }
 
 func generateCloudInitISO(t *testing.T, metaData, userData string) string {
