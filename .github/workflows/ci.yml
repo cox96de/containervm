@@ -38,6 +38,8 @@ jobs:
       - name: Build docker
         run: docker build -t containervm .
       - name: Download Image
-        run: wget -q -O image.qcow2 'https://cloud.debian.org/images/cloud/bullseye/20230515-1381/debian-11-nocloud-amd64-20230515-1381.qcow2'
+        run: wget -q -O image.qcow2 'https://cloud.debian.org/images/cloud/bullseye/20230802-1460/debian-11-genericcloud-amd64-20230802-1460.qcow2'
       - name: Integration test
-        run: cd test && go test -tags integration -v ./...
+        run: |
+          sudo apt-get update && sudo apt-get install -y genisoimage
+          cd test && go test -tags integration -v ./...
