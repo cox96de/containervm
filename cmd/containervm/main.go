@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/cox96de/containervm/cloudinit"
 	"github.com/cox96de/containervm/network"
 	"github.com/cox96de/containervm/resolvconf"
 	"github.com/cox96de/containervm/util"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -55,19 +57,24 @@ func main() {
 		}
 		ns = append(ns, ip)
 	}
-	tapDevicePath, bridgeMacAddr, mtu, cleanFunc := configureNetwork(ns, searchDomains)
+	nw, cleanFunc := configureNetwork(ns, searchDomains)
 	defer func() {
 		log.Infof("cleaning up network...")
 		if err := cleanFunc(); err != nil {
 			log.Errorf("failed to clean up network: %+v", err)
 		}
 	}()
-	tapFile, err := os.Open(tapDevicePath)
+	tapFile, err := os.Open(nw.BridgeName)
 	if err != nil {
-		log.Fatalf("failed to open tap dev(%s): %+v", tapDevicePath, err)
+		log.Fatalf("failed to open tap dev(%s): %+v", nw.BridgeName, err)
 	}
-	qemuNetworkOpt := generateQEMUNetworkOpt(tapFile, bridgeMacAddr, mtu)
+	qemuNetworkOpt := generateQEMUNetworkOpt(tapFile, nw.BridgeMacAddr, nw.MTU)
 	args = append(args, qemuNetworkOpt...)
+	if nw.Gateway6 != nil {
+		log.Infof("use cloud-init to setup ipv6 network...")
+		cloudInitOpt := generateCloudInitOpt(nw)
+		args = append(args, cloudInitOpt...)
+	}
 	log.Infof("run qemu with command: %s", strings.Join(args, " "))
 	exitSig := make(chan os.Signal)
 	signal.Notify(exitSig, syscall.SIGTERM, syscall.SIGINT)
@@ -96,16 +103,77 @@ func generateQEMUNetworkOpt(vtapFile *os.File, macAddr net.HardwareAddr, mtu int
 		"-device", "virtio-net-pci,netdev=net0,mac=" + macAddr.String() + ",host_mtu=" + strconv.Itoa(mtu)}
 }
 
-func configureNetwork(dnsServers []net.IP, searchDomains []string) (bridgeName string, bridgeMacAddr net.HardwareAddr, mtu int,
+func generateCloudInitOpt(n *Network) []string {
+	c := &cloudinit.NetworkConfig{
+		Mac:       n.BridgeMacAddr,
+		Addresses: n.Address,
+		Gateway4:  n.Gateway,
+		Gateway6:  n.Gateway6,
+	}
+	content, err := cloudinit.GenerateNetworkConfig(c)
+	if err != nil {
+		log.Fatalf("failed to generate network config: %+v", err)
+	}
+	tempDir, err := os.MkdirTemp("", "cloud-init-*")
+	if err != nil {
+		log.Fatalf("failed to create temp dir: %+v", err)
+	}
+	err = os.WriteFile(filepath.Join(tempDir, "network-config"), content, os.ModePerm)
+	if err != nil {
+		log.Fatalf("failed to write network-config: %+v", err)
+	}
+	err = os.WriteFile(filepath.Join(tempDir, "user-data"), []byte(`#cloud-config
+`), os.ModePerm)
+	if err != nil {
+		log.Fatalf("failed to write user-data: %+v", err)
+	}
+	err = os.WriteFile(filepath.Join(tempDir, "meta-data"), []byte(`#cloud-config
+instance-id: someid/somehost
+`), os.ModePerm)
+	if err != nil {
+		log.Fatalf("failed to write meta-data: %+v", err)
+	}
+	isoFile := "seed.iso"
+
+	err = util.GenISO(tempDir, isoFile, []string{"network-config", "meta-data", "user-data"}, "cidata")
+	if err != nil {
+		log.Fatalf("failed to write network-config: %+v", err)
+	}
+	return []string{"-drive", fmt.Sprintf("driver=raw,file=%s,if=virtio", filepath.Join(tempDir, isoFile))}
+}
+
+type Network struct {
+	NIC           *util.NIC
+	Address       []*net.IPNet
+	Gateway       net.IP
+	Gateway6      net.IP
+	BridgeName    string
+	BridgeMacAddr net.HardwareAddr
+	MTU           int
+}
+
+func configureNetwork(dnsServers []net.IP, searchDomains []string) (nw *Network,
 	clean func() error) {
+
 	nic, err := util.GetDefaultNIC()
 	if err != nil {
 		log.Fatalf("failed to get default nic: %+v", err)
+	}
+	nw = &Network{
+		NIC:           nic,
+		BridgeMacAddr: nic.HardwareAddr,
+		MTU:           nic.MTU,
 	}
 	ipv4Gateway, err := util.GetIPv4DefaultGateway()
 	if err != nil {
 		log.Warnf("failed to get default ipv4 gateway address: %+v", err)
 	}
+	nw.Gateway = ipv4Gateway
+	ipv6Gateway, err := util.GetIPv6DefaultGateway()
+	if err != nil {
+		log.Warnf("failed to get default ipv6 gateway address: %+v", err)
+	}
+	nw.Gateway6 = ipv6Gateway
 	ifIP, err := gateway.DiscoverInterface()
 	if err != nil {
 		log.Warnf("failed to get default gateway interface: %+v", err)
@@ -116,6 +184,13 @@ func configureNetwork(dnsServers []net.IP, searchDomains []string) (bridgeName s
 		log.Fatalf("failed to get nic %s: %+v", nic.Name, err)
 	}
 	addrs, err := defaultNIC.Addrs()
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok {
+			continue
+		}
+		nw.Address = append(nw.Address, ipNet)
+	}
 	if err != nil {
 		log.Fatalf("failed to get addresses of nic %s: %+v", nic.Name, err)
 	}
@@ -184,7 +259,8 @@ func configureNetwork(dnsServers []net.IP, searchDomains []string) (bridgeName s
 			}
 		}()
 	}
-	return configure.GetMacVtapDevicePath(), nic.HardwareAddr, nic.MTU, func() error {
+	nw.BridgeName = configure.GetMacVtapDevicePath()
+	return nw, func() error {
 		return configure.Recover()
 	}
 }

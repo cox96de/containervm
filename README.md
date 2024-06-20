@@ -80,8 +80,13 @@ socat TCP-LISTEN:5000,reuseaddr,fork UNIX-CLIENT:/tmp/containervm/vnc.sock
 vncviewer localhost:5000
 ```
 
-
 ### Use minicom to connect to the VM's serial port
+
 ```shell
 minicom -D unix\#/tmp/containervm/console.sock
 ```
+
+## IPv6 support
+
+This tool support IPv6's container: you can connect to the VM with the IPv6 address.
+Besides, you should configure the ipv6 of container, but also install the `cloud-init` in the guest VM.
