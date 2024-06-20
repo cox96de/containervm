@@ -64,7 +64,7 @@ Make sure the SSH server is enabled, and execute the following command to connec
 ssh root@172.17.0.2
 ```
 
-### Use VNC to Connect to the VM
+### Use VNC to connect to the VM
 
 If the VM you downloaded disables SSH for security reasons, you can use VNC to connect to the VM. Mount the VNC socket
 outside the container with the path /tmp/containervm/vnc.sock. Convert it to a TCP connection, and then use a VNC client
@@ -78,4 +78,10 @@ socat TCP-LISTEN:5000,reuseaddr,fork UNIX-CLIENT:/tmp/containervm/vnc.sock
 
 ```shell
 vncviewer localhost:5000
+```
+
+
+### Use minicom to connect to the VM's serial port
+```shell
+minicom -D unix\#/tmp/containervm/console.sock
 ```
