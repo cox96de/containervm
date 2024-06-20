@@ -8,7 +8,6 @@ import (
 	"github.com/go-ping/ping"
 	"github.com/jackpal/gateway"
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 	"github.com/vishvananda/netlink"
 )
 
@@ -22,34 +21,20 @@ func GetRandomMAC() net.HardwareAddr {
 
 // NIC describes a NIC with its name, address, gateway & MAC address.
 type NIC struct {
-	// Name is the interface name, like eth0, eth1, etc.
-	Name string
-	// Addr is the IP address of the interface.
-	Addr net.Addr
-	// HardwareAddr is the MAC address of the interface.
-	HardwareAddr net.HardwareAddr
-	// Gateway is the default gateway of the interface.
-	Gateway net.IP
-	// GatewayHardwareAddr is the MAC address of the gateway.
-	GatewayHardwareAddr net.HardwareAddr
-	// MTU is the MTU of the interface.
-	MTU int
+	net.Interface
 }
 
 // GetDefaultNIC finds the default network interface of this host.
 // The default NIC must have a default gateway.
 func GetDefaultNIC() (*NIC, error) {
-	gwIP, err := gateway.DiscoverGateway()
-	if err != nil {
-		return nil, errors.WithMessage(err, "failed to discover default gateway")
-	}
 	ifIP, err := gateway.DiscoverInterface()
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to discover default interface")
 	}
-	config := &NIC{
-		Gateway: gwIP,
+	if err != nil && errors.Is(err, NotFoundError) {
+		return nil, errors.WithMessagef(err, "failed to get ipv6 default gateway")
 	}
+	config := &NIC{}
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, errors.WithMessage(err, "failed to list interfaces")
@@ -72,22 +57,42 @@ func GetDefaultNIC() (*NIC, error) {
 			default:
 				continue
 			}
-			config.Name = nic.Name
-			config.Addr = addr
-			config.HardwareAddr = nic.HardwareAddr
-			config.MTU = nic.MTU
-			gwHwAddr, err := getHardwareAddr(nic.Index, gwIP)
-			if err != nil {
-				log.Warningf("failed to get MAC address of gateway %v at %s: %v", gwIP, nic.Name, err)
-			}
-			config.GatewayHardwareAddr = gwHwAddr
+			config.Interface = nic
 			return config, nil
 		}
 	}
 	return nil, errors.WithMessage(err, "failed to find default interface")
 }
 
-func getHardwareAddr(ifIndex int, ip net.IP) (net.HardwareAddr, error) {
+var NotFoundError = errors.New("not found")
+
+func GetIPv4DefaultGateway() (net.IP, error) {
+	routes, err := netlink.RouteList(nil, netlink.FAMILY_V4)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get ipv4 routes")
+	}
+	for _, route := range routes {
+		if route.Dst == nil && route.Gw != nil {
+			return route.Gw, nil
+		}
+	}
+	return nil, NotFoundError
+}
+
+func GetIPv6DefaultGateway() (net.IP, error) {
+	routes, err := netlink.RouteList(nil, netlink.FAMILY_V6)
+	if err != nil {
+		return nil, errors.WithMessage(err, "failed to get ipv6 routes")
+	}
+	for _, route := range routes {
+		if route.Dst == nil && route.Gw != nil {
+			return route.Gw, nil
+		}
+	}
+	return nil, NotFoundError
+}
+
+func GetHardwareAddr(ifIndex int, ip net.IP) (net.HardwareAddr, error) {
 	pinger, err := ping.NewPinger(ip.String())
 	if err == nil {
 		pinger.Count = 1

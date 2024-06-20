@@ -1,11 +1,13 @@
 module github.com/cox96de/containervm
 
-go 1.18
+go 1.21
+
+toolchain go1.22.3
 
 require (
 	github.com/go-ping/ping v1.1.0
 	github.com/insomniacslk/dhcp v0.0.0-20230516061539-49801966e6cb
-	github.com/jackpal/gateway v1.0.10
+	github.com/jackpal/gateway v1.0.15
 	github.com/mdlayher/arp v0.0.0-20220221190821-c37aaafac7f9
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.2
@@ -16,6 +18,7 @@ require (
 )
 
 require (
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/go-cmp v0.5.9 // indirect
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/josharian/native v1.1.0 // indirect
@@ -23,10 +26,14 @@ require (
 	github.com/mdlayher/packet v1.1.1 // indirect
 	github.com/mdlayher/socket v0.4.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.14 // indirect
-	github.com/stretchr/testify v1.8.2 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/samber/lo v1.39.0 // indirect
+	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/u-root/uio v0.0.0-20230220225925-ffce2a382923 // indirect
 	github.com/vishvananda/netns v0.0.0-20191106174202-0a2b9b5464df // indirect
-	golang.org/x/net v0.8.0 // indirect
+	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/sync v0.1.0 // indirect
-	golang.org/x/sys v0.6.0 // indirect
+	golang.org/x/sys v0.21.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
