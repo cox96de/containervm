@@ -13,14 +13,8 @@ type Option func(*exec.Cmd)
 // Run starts a command and waits.
 // The output includes its stdout & stderr. err is not nil when an error occurred or the exit code is not 0.
 func Run(command string, args ...string) (output string, err error) {
-	return RunWithWorkDir("", command, args...)
-}
-
-// RunWithWorkDir starts a command and waits.
-func RunWithWorkDir(workDir string, command string, args ...string) (output string, err error) {
 	log.Infof("run: %s %+v", command, strings.Join(args, " "))
 	cmd := exec.Command(command, args...)
-	cmd.Dir = workDir
 	ouptut, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(ouptut), errors.WithMessage(err, "failed to run command")
